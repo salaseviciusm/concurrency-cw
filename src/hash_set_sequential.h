@@ -24,10 +24,10 @@ class HashSetSequential : public HashSetBase<T> {
     size_t hash = hash_(elem);
 
     size_t index = hash % initial_capacity_;
-    std::vector<T>& current_vector = table_.at(index);
+    std::vector<T>& bucket = table_.at(index);
 
-    auto iter = current_vector.begin();
-    while (iter != current_vector.end()) {
+    auto iter = bucket.begin();
+    while (iter != bucket.end()) {
       if (*iter == elem) {
         return false;
       }
@@ -35,7 +35,7 @@ class HashSetSequential : public HashSetBase<T> {
     }
 
     current_size_++;
-    current_vector.push_back(elem);
+    bucket.push_back(elem);
 
     if (Policy()) {
       Resize();
@@ -47,13 +47,13 @@ class HashSetSequential : public HashSetBase<T> {
   bool Remove(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T>& current_vector = table_.at(index);
+    std::vector<T>& bucket = table_.at(index);
 
-    auto iter = current_vector.begin();
+    auto iter = bucket.begin();
 
-    while (iter != current_vector.end()) {
+    while (iter != bucket.end()) {
       if (*iter == elem) {
-        current_vector.erase(iter);
+        bucket.erase(iter);
         current_size_--;
         return true;
       }
@@ -66,10 +66,9 @@ class HashSetSequential : public HashSetBase<T> {
   bool Contains(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_.at(index);
+    std::vector<T> bucket = table_.at(index);
 
-    return std::find(current_vector.begin(), current_vector.end(), elem) !=
-           current_vector.end();
+    return std::find(bucket.begin(), bucket.end(), elem) != bucket.end();
   }
 
   [[nodiscard]] size_t Size() const final { return current_size_; }
