@@ -14,19 +14,17 @@ class HashSetSequential : public HashSetBase<T> {
  public:
   explicit HashSetSequential(size_t initial_capacity)
       : initial_capacity_(initial_capacity), current_size_(0) {
-    table_ = new std::vector<T>[initial_capacity];
+    table_.reserve(initial_capacity);
     for (size_t i = 0; i < initial_capacity; i++) {
-      table_[i] = std::vector<T>();
+      table_.push_back(std::vector<T>());
     }
   }
-
-  ~HashSetSequential() override { delete[] table_; }
 
   bool Add(T elem) final {
     size_t hash = hash_(elem);
 
     size_t index = hash % initial_capacity_;
-    std::vector<T>& current_vector = table_[index];
+    std::vector<T>& current_vector = table_.at(index);
 
     auto iter = current_vector.begin();
     while (iter != current_vector.end()) {
@@ -39,13 +37,17 @@ class HashSetSequential : public HashSetBase<T> {
     current_size_++;
     current_vector.push_back(elem);
 
+    if (Policy()) {
+      Resize();
+    }
+
     return true;
   }
 
   bool Remove(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T>& current_vector = table_[index];
+    std::vector<T>& current_vector = table_.at(index);
 
     auto iter = current_vector.begin();
 
@@ -64,7 +66,7 @@ class HashSetSequential : public HashSetBase<T> {
   bool Contains(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_[index];
+    std::vector<T> current_vector = table_.at(index);
 
     return std::find(current_vector.begin(), current_vector.end(), elem) !=
            current_vector.end();
@@ -73,10 +75,25 @@ class HashSetSequential : public HashSetBase<T> {
   [[nodiscard]] size_t Size() const final { return current_size_; }
 
  private:
+  bool Policy() { return current_size_ / initial_capacity_ > 4; }
+
+  void Resize() {
+    initial_capacity_ *= 2;
+    auto old_table = table_;
+    table_ = std::vector<std::vector<T>>(initial_capacity_);
+    for (std::vector<T> bucket : old_table) {
+      for (T elem : bucket) {
+        size_t index = hash_(elem) % initial_capacity_;
+        std::vector<T>& curr_bucket = table_.at(index);
+        curr_bucket.push_back(elem);
+      }
+    }
+  }
+
   std::hash<T> hash_;
   size_t initial_capacity_;
   size_t current_size_;
-  std::vector<T>* table_;
+  std::vector<std::vector<T>> table_;
 };
 
 #endif  // HASH_SET_SEQUENTIAL_H
