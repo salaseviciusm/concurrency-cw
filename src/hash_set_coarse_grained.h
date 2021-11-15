@@ -12,7 +12,6 @@
 template <typename T>
 class HashSetCoarseGrained : public HashSetBase<T> {
  public:
- public:
   explicit HashSetCoarseGrained(size_t initial_capacity)
       : initial_capacity_(initial_capacity), current_size_(0) {
     table_.reserve(initial_capacity);
