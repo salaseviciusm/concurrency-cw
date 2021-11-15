@@ -26,7 +26,7 @@ class HashSetSequential : public HashSetBase<T> {
     size_t hash = hash_(elem);
 
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_[index];
+    std::vector<T>& current_vector = table_[index];
 
     auto iter = current_vector.begin();
     while (iter != current_vector.end()) {
@@ -39,15 +39,13 @@ class HashSetSequential : public HashSetBase<T> {
     current_size_++;
     current_vector.push_back(elem);
 
-    table_[index] = current_vector;
-
     return true;
   }
 
   bool Remove(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_[index];
+    std::vector<T>& current_vector = table_[index];
 
     auto iter = current_vector.begin();
 
