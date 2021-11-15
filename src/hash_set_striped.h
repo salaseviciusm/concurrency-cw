@@ -1,34 +1,149 @@
 #ifndef HASH_SET_STRIPED_H
 #define HASH_SET_STRIPED_H
 
+#include <stdio.h>
+
+#include <algorithm>
 #include <cassert>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 #include "src/hash_set_base.h"
 
 template <typename T>
 class HashSetStriped : public HashSetBase<T> {
  public:
-  explicit HashSetStriped(size_t /*initial_capacity*/) {}
+  explicit HashSetStriped(size_t initial_capacity)
+      : initial_capacity_(initial_capacity),
+        current_capacity_(initial_capacity) {
+    table_.reserve(initial_capacity);
+    sizes_.reserve(initial_capacity);
+    mutexs_ = new std::mutex[initial_capacity];
+    for (size_t i = 0; i < initial_capacity; i++) {
+      table_.push_back(std::vector<T>());
+      sizes_.push_back(0);
+    }
+  }
 
-  bool Add(T /*elem*/) final {
-    assert(false && "Not implemented yet");
+  ~HashSetStriped() override { delete[] mutexs_; }
+
+  bool Add(T elem) final {
+    size_t hash = hash_(elem);
+    mutexs_[hash % initial_capacity_].lock();
+
+    size_t index = hash % current_capacity_;
+    std::vector<T>& bucket = table_.at(index);
+
+    auto iter = bucket.begin();
+    while (iter != bucket.end()) {
+      if (*iter == elem) {
+        mutexs_[hash % initial_capacity_].unlock();
+        return false;
+      }
+      ++iter;
+    }
+
+    sizes_.at(index)++;
+    bucket.push_back(elem);
+
+    mutexs_[hash % initial_capacity_].unlock();
+
+    if (Policy()) {
+      Resize();
+    }
+
+    return true;
+  }
+
+  bool Remove(T elem) final {
+    size_t hash = hash_(elem);
+    std::scoped_lock<std::mutex> scoped_lock(mutexs_[hash % initial_capacity_]);
+
+    size_t index = hash % current_capacity_;
+
+    if (sizes_.at(index) == 0) return false;
+
+    std::vector<T>& bucket = table_.at(index);
+
+    auto iter = bucket.begin();
+
+    while (iter != bucket.end()) {
+      if (*iter == elem) {
+        bucket.erase(iter);
+        sizes_[index]--;
+        return true;
+      }
+      ++iter;
+    }
+
     return false;
   }
 
-  bool Remove(T /*elem*/) final {
-    assert(false && "Not implemented yet");
-    return false;
-  }
+  bool Contains(T elem) final {
+    size_t hash = hash_(elem);
+    std::scoped_lock<std::mutex> scoped_lock(mutexs_[hash % initial_capacity_]);
 
-  bool Contains(T /*elem*/) final {
-    assert(false && "Not implemented yet");
-    return false;
+    size_t index = hash % current_capacity_;
+    std::vector<T> bucket = table_.at(index);
+
+    return std::find(bucket.begin(), bucket.end(), elem) != bucket.end();
   }
 
   [[nodiscard]] size_t Size() const final {
-    assert(false && "Not implemented yet");
-    return 0u;
+    size_t sum = 0;
+    for (size_t i = 0; i < current_capacity_; i++) {
+      mutexs_[i % initial_capacity_].lock();
+      sum += sizes_.at(i);
+      mutexs_[i % initial_capacity_].unlock();
+    }
+    return sum;
   }
+
+ private:
+  bool Policy() { return Size() / current_capacity_ > 4; }
+
+  void Resize() {
+    size_t old_capacity = Size();
+    for (size_t i = 0; i < initial_capacity_; i++) {
+      mutexs_[i].lock();
+    }
+
+    if (old_capacity != table_.size()) {
+      for (size_t i = 0; i < initial_capacity_; i++) {
+        mutexs_[i].unlock();
+      }
+      return;
+    }
+
+    current_capacity_ *= 2;
+    auto old_table = table_;
+    table_ = std::vector<std::vector<T>>(current_capacity_);
+    sizes_ = std::vector<size_t>(current_capacity_);
+    for (size_t i = 0; i < current_capacity_; i++) {
+      sizes_.push_back(0);
+    }
+    for (std::vector<T> bucket : old_table) {
+      for (T elem : bucket) {
+        size_t index = hash_(elem) % current_capacity_;
+        std::vector<T>& curr_bucket = table_.at(index);
+        curr_bucket.push_back(elem);
+        sizes_.at(index)++;
+      }
+    }
+
+    for (size_t i = 0; i < initial_capacity_; i++) {
+      mutexs_[i].unlock();
+    }
+  }
+
+  std::hash<T> hash_;
+  size_t const initial_capacity_;
+  size_t current_capacity_;
+  std::vector<std::vector<T>> table_;
+  std::mutex* mutexs_;
+  std::vector<size_t> sizes_;
+  mutable std::mutex sizes_lock_;
 };
 
 #endif  // HASH_SET_STRIPED_H
