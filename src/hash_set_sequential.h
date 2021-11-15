@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+#include <algorithm>
 #include <cassert>
 #include <vector>
 
@@ -12,19 +13,20 @@ template <typename T>
 class HashSetSequential : public HashSetBase<T> {
  public:
   explicit HashSetSequential(size_t initial_capacity)
-      : intial_capacity_(initial_capacity),
-        current_size_(0)
-  {
+      : initial_capacity_(initial_capacity), current_size_(0) {
+    table_ = new std::vector<T>[initial_capacity];
     for (size_t i = 0; i < initial_capacity; i++) {
-      table_.push_back(std::vector<T>());
+      table_[i] = std::vector<T>();
     }
   }
+
+  ~HashSetSequential() override { delete[] table_; }
 
   bool Add(T elem) final {
     size_t hash = hash_(elem);
 
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_.at(index);
+    std::vector<T> current_vector = table_[index];
 
     auto iter = current_vector.begin();
     while (iter != current_vector.end()) {
@@ -35,9 +37,9 @@ class HashSetSequential : public HashSetBase<T> {
     }
 
     current_size_++;
-
     current_vector.push_back(elem);
-    table_.at(index) = current_vector;
+
+    table_[index] = current_vector;
 
     return true;
   }
@@ -45,7 +47,7 @@ class HashSetSequential : public HashSetBase<T> {
   bool Remove(T elem) final {
     size_t hash = hash_(elem);
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_.at(index);
+    std::vector<T> current_vector = table_[index];
 
     auto iter = current_vector.begin();
 
@@ -63,18 +65,11 @@ class HashSetSequential : public HashSetBase<T> {
 
   bool Contains(T elem) final {
     size_t hash = hash_(elem);
-
     size_t index = hash % initial_capacity_;
-    std::vector<T> current_vector = table_.at(index);
-    auto iter = current_vector.begin();
-    while (iter != current_vector.end()) {
-      if (*iter == elem) {
-        return true;
-      }
-      ++iter;
-    }
+    std::vector<T> current_vector = table_[index];
 
-    return false;
+    return std::find(current_vector.begin(), current_vector.end(), elem) !=
+           current_vector.end();
   }
 
   [[nodiscard]] size_t Size() const final { return current_size_; }
@@ -83,7 +78,7 @@ class HashSetSequential : public HashSetBase<T> {
   std::hash<T> hash_;
   size_t initial_capacity_;
   size_t current_size_;
-  std::vector<std::vector<T>> table_;
+  std::vector<T>* table_;
 };
 
 #endif  // HASH_SET_SEQUENTIAL_H
