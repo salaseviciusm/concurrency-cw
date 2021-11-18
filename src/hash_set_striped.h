@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <mutex>
 #include <thread>
@@ -18,11 +19,10 @@ class HashSetStriped : public HashSetBase<T> {
       : initial_capacity_(initial_capacity),
         current_capacity_(initial_capacity) {
     table_.reserve(initial_capacity);
-    sizes_.reserve(initial_capacity);
+    size_.store(0);
     mutexs_ = new std::mutex[initial_capacity];
     for (size_t i = 0; i < initial_capacity; i++) {
       table_.push_back(std::vector<T>());
-      sizes_.push_back(0);
     }
   }
 
@@ -44,12 +44,13 @@ class HashSetStriped : public HashSetBase<T> {
       ++iter;
     }
 
-    sizes_.at(index)++;
+    size_++;
     bucket.push_back(elem);
 
     mutexs_[hash % initial_capacity_].unlock();
 
-    if (Policy()) {
+    size_t size = Size();
+    if (Policy(size)) {
       Resize();
     }
 
@@ -62,7 +63,7 @@ class HashSetStriped : public HashSetBase<T> {
 
     size_t index = hash % current_capacity_;
 
-    if (sizes_.at(index) == 0) return false;
+    if (size_.load() == 0) return false;
 
     std::vector<T>& bucket = table_.at(index);
 
@@ -71,7 +72,7 @@ class HashSetStriped : public HashSetBase<T> {
     while (iter != bucket.end()) {
       if (*iter == elem) {
         bucket.erase(iter);
-        sizes_[index]--;
+        size_--;
         return true;
       }
       ++iter;
@@ -90,45 +91,24 @@ class HashSetStriped : public HashSetBase<T> {
     return std::find(bucket.begin(), bucket.end(), elem) != bucket.end();
   }
 
-  [[nodiscard]] size_t Size() const final {
-    size_t sum = 0;
-    for (size_t i = 0; i < current_capacity_; i++) {
-      mutexs_[i % initial_capacity_].lock();
-      sum += sizes_.at(i);
-      mutexs_[i % initial_capacity_].unlock();
-    }
-    return sum;
-  }
+  [[nodiscard]] size_t Size() const final { return size_.load(); }
 
  private:
-  bool Policy() { return Size() / current_capacity_ > 4; }
+  bool Policy(size_t size) { return size / current_capacity_ > 4; }
 
   void Resize() {
-    size_t old_capacity = Size();
     for (size_t i = 0; i < initial_capacity_; i++) {
       mutexs_[i].lock();
     }
 
-    if (old_capacity != table_.size()) {
-      for (size_t i = 0; i < initial_capacity_; i++) {
-        mutexs_[i].unlock();
-      }
-      return;
-    }
-
-    current_capacity_ *= 2;
+    current_capacity_ = current_capacity_ * 2;
     auto old_table = table_;
-    table_ = std::vector<std::vector<T>>(current_capacity_);
-    sizes_ = std::vector<size_t>(current_capacity_);
-    for (size_t i = 0; i < current_capacity_; i++) {
-      sizes_.push_back(0);
-    }
+    table_ = std::vector<std::vector<T>>(current_capacity_.load());
     for (std::vector<T> bucket : old_table) {
       for (T elem : bucket) {
-        size_t index = hash_(elem) % current_capacity_;
+        size_t index = hash_(elem) % current_capacity_.load();
         std::vector<T>& curr_bucket = table_.at(index);
         curr_bucket.push_back(elem);
-        sizes_.at(index)++;
       }
     }
 
@@ -139,11 +119,10 @@ class HashSetStriped : public HashSetBase<T> {
 
   std::hash<T> hash_;
   size_t const initial_capacity_;
-  size_t current_capacity_;
+  std::atomic<size_t> current_capacity_;
   std::vector<std::vector<T>> table_;
   std::mutex* mutexs_;
-  std::vector<size_t> sizes_;
-  mutable std::mutex sizes_lock_;
+  std::atomic<size_t> size_;
 };
 
 #endif  // HASH_SET_STRIPED_H
