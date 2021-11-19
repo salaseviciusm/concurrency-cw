@@ -2,6 +2,7 @@
 #define HASH_SET_COARSE_GRAINED_H
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <mutex>
 #include <thread>
@@ -23,9 +24,7 @@ class HashSetCoarseGrained : public HashSetBase<T> {
   bool Add(T elem) final {
     std::scoped_lock<std::mutex> scoped_lock(mutex_);
 
-    size_t hash = hash_(elem);
-    size_t index = hash % initial_capacity_;
-    std::vector<T>& bucket = table_.at(index);
+    std::vector<T>& bucket = table_.at(GetIndex(elem));
 
     auto iter = bucket.begin();
     while (iter != bucket.end()) {
@@ -50,9 +49,7 @@ class HashSetCoarseGrained : public HashSetBase<T> {
 
     if (current_size_ == 0) return false;
 
-    size_t hash = hash_(elem);
-    size_t index = hash % initial_capacity_;
-    std::vector<T>& bucket = table_.at(index);
+    std::vector<T>& bucket = table_.at(GetIndex(elem));
 
     auto iter = bucket.begin();
 
@@ -71,17 +68,12 @@ class HashSetCoarseGrained : public HashSetBase<T> {
   bool Contains(T elem) final {
     std::scoped_lock<std::mutex> scoped_lock(mutex_);
 
-    size_t hash = hash_(elem);
-    size_t index = hash % initial_capacity_;
-    std::vector<T> bucket = table_.at(index);
+    std::vector<T> bucket = table_.at(GetIndex(elem));
 
     return std::find(bucket.begin(), bucket.end(), elem) != bucket.end();
   }
 
-  [[nodiscard]] size_t Size() const final {
-    std::scoped_lock<std::mutex> scoped_lock(mutex_);
-    return current_size_;
-  }
+  [[nodiscard]] size_t Size() const final { return current_size_.load(); }
 
  private:
   bool Policy() { return current_size_ / initial_capacity_ > 4; }
@@ -92,18 +84,19 @@ class HashSetCoarseGrained : public HashSetBase<T> {
     table_ = std::vector<std::vector<T>>(initial_capacity_);
     for (std::vector<T> bucket : old_table) {
       for (T elem : bucket) {
-        size_t index = hash_(elem) % initial_capacity_;
-        std::vector<T>& curr_bucket = table_.at(index);
+        std::vector<T>& curr_bucket = table_.at(GetIndex(elem));
         curr_bucket.push_back(elem);
       }
     }
   }
 
+  size_t GetIndex(T elem) { return hash_(elem) % initial_capacity_; }
+
   std::hash<T> hash_;
   size_t initial_capacity_;
-  size_t current_size_;
+  std::atomic<size_t> current_size_;
   std::vector<std::vector<T>> table_;
-  mutable std::mutex mutex_;
+  std::mutex mutex_;
 };
 
 #endif  // HASH_SET_COARSE_GRAINED_H
