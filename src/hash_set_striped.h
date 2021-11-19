@@ -29,16 +29,13 @@ class HashSetStriped : public HashSetBase<T> {
   ~HashSetStriped() override { delete[] mutexs_; }
 
   bool Add(T elem) final {
-    size_t hash = hash_(elem);
-    mutexs_[hash % initial_capacity_].lock();
-
-    size_t index = hash % current_capacity_;
-    std::vector<T>& bucket = table_.at(index);
+    mutexs_[GetMutexIndex(elem)].lock();
+    std::vector<T>& bucket = table_.at(GetBucketIndex(elem));
 
     auto iter = bucket.begin();
     while (iter != bucket.end()) {
       if (*iter == elem) {
-        mutexs_[hash % initial_capacity_].unlock();
+        mutexs_[GetMutexIndex(elem)].unlock();
         return false;
       }
       ++iter;
@@ -47,7 +44,7 @@ class HashSetStriped : public HashSetBase<T> {
     size_++;
     bucket.push_back(elem);
 
-    mutexs_[hash % initial_capacity_].unlock();
+    mutexs_[GetMutexIndex(elem)].unlock();
 
     size_t size = Size();
     if (Policy(size)) {
@@ -58,14 +55,11 @@ class HashSetStriped : public HashSetBase<T> {
   }
 
   bool Remove(T elem) final {
-    size_t hash = hash_(elem);
-    std::scoped_lock<std::mutex> scoped_lock(mutexs_[hash % initial_capacity_]);
-
-    size_t index = hash % current_capacity_;
+    std::scoped_lock<std::mutex> scoped_lock(mutexs_[GetMutexIndex(elem)]);
 
     if (size_.load() == 0) return false;
 
-    std::vector<T>& bucket = table_.at(index);
+    std::vector<T>& bucket = table_.at(GetBucketIndex(elem));
 
     auto iter = bucket.begin();
 
@@ -82,11 +76,8 @@ class HashSetStriped : public HashSetBase<T> {
   }
 
   bool Contains(T elem) final {
-    size_t hash = hash_(elem);
-    std::scoped_lock<std::mutex> scoped_lock(mutexs_[hash % initial_capacity_]);
-
-    size_t index = hash % current_capacity_;
-    std::vector<T> bucket = table_.at(index);
+    std::scoped_lock<std::mutex> scoped_lock(mutexs_[GetMutexIndex(elem)]);
+    std::vector<T> bucket = table_.at(GetBucketIndex(elem));
 
     return std::find(bucket.begin(), bucket.end(), elem) != bucket.end();
   }
@@ -106,8 +97,7 @@ class HashSetStriped : public HashSetBase<T> {
     table_ = std::vector<std::vector<T>>(current_capacity_.load());
     for (std::vector<T> bucket : old_table) {
       for (T elem : bucket) {
-        size_t index = hash_(elem) % current_capacity_.load();
-        std::vector<T>& curr_bucket = table_.at(index);
+        std::vector<T>& curr_bucket = table_.at(GetBucketIndex(elem));
         curr_bucket.push_back(elem);
       }
     }
@@ -116,6 +106,9 @@ class HashSetStriped : public HashSetBase<T> {
       mutexs_[i].unlock();
     }
   }
+
+  size_t GetBucketIndex(T elem) { return hash_(elem) % current_capacity_; }
+  size_t GetMutexIndex(T elem) { return hash_(elem) % initial_capacity_; }
 
   std::hash<T> hash_;
   size_t const initial_capacity_;
